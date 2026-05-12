@@ -1,0 +1,14 @@
+spring:
+  # ── 데이터베이스 (Neon Serverless PostgreSQL) ──────────────────────────────────
+  datasource:
+    url: ${NEON_JDBC_URL}
+    username: ${NEON_USER}
+    password: ${NEON_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update   # 로컬: 엔티티 변경 시 테이블 자동 수정
+    show-sql: true       # 로컬: 실행 쿼리 콘솔 출력
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+  thymeleaf:
+    cache: false         # 로컬: HTML 수정 즉시 반영

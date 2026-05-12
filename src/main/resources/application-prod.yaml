@@ -1,0 +1,17 @@
+spring:
+  # ── 데이터베이스 (Neon Serverless PostgreSQL) ──────────────────────────────────
+  datasource:
+    url: ${NEON_JDBC_URL}
+    username: ${NEON_USER}
+    password: ${NEON_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: validate  # 운영: 테이블 변경 금지, 엔티티와 스키마 불일치 시 실행 거부
+    show-sql: false
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+  thymeleaf:
+    cache: true           # 운영: 캐시 활성화로 성능 향상
+
+serial:
+  enabled: true           # 운영: 실제 Arduino 연결

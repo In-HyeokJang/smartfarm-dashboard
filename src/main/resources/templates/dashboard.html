@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<!--
+  dashboard.html
+  SmartFarm 메인 대시보드 페이지.
+
+  기능:
+  1. 초기 로딩: DashboardController가 Model에 담아준 최신 데이터(latest)와 히스토리(history)를 Thymeleaf로 렌더링
+  2. 실시간 업데이트: SSE(/api/sse)로 3초마다 새 데이터를 수신하여 카드와 차트를 자동 업데이트
+  3. 펌프 제어: "펌프 ON/OFF" 버튼 클릭 시 fetch()로 POST /api/pump/on(off) 호출
+
+  CSRF 처리:
+  - meta 태그에 CSRF 토큰을 담아두고, fetch() 요청 헤더에 포함시켜 Spring Security 통과
+-->
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SmartFarm Dashboard</title>
+
+    <!--
+        Spring Security CSRF 토큰을 meta 태그에 저장.
+        JavaScript fetch() 요청 시 이 값을 헤더에 담아야 Spring Security가 허용함.
+    -->
+    <meta name="_csrf" th:content="${_csrf.token}">
+    <meta name="_csrf_header" th:content="${_csrf.headerName}">
+
+    <!-- Bootstrap 5.3 -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Bootstrap Icons -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+
+    <style>
+        body {
+            background-color: #f0f7f0;
+            font-family: 'Segoe UI', sans-serif;
+        }
+        .navbar-brand {
+            font-weight: 700;
+            font-size: 1.3rem;
+        }
+        .stat-card {
+            border: none;
+            border-radius: 16px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .stat-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 30px rgba(0,0,0,0.12);
+        }
+        .stat-value {
+            font-size: 2.8rem;
+            font-weight: 700;
+            line-height: 1;
+        }
+        .stat-label {
+            font-size: 0.85rem;
+            color: #6c757d;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .card-moisture {
+            background: linear-gradient(135deg, #e8f5e9, #c8e6c9);
+            border-left: 5px solid #4caf50;
+        }
+        .card-raw {
+            background: linear-gradient(135deg, #e3f2fd, #bbdefb);
+            border-left: 5px solid #2196f3;
+        }
+        .card-pump {
+            background: linear-gradient(135deg, #fff3e0, #ffe0b2);
+            border-left: 5px solid #ff9800;
+        }
+        .card-time {
+            background: linear-gradient(135deg, #f3e5f5, #e1bee7);
+            border-left: 5px solid #9c27b0;
+        }
+        .pump-badge-on {
+            background-color: #4caf50;
+            color: white;
+            padding: 4px 14px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+        .pump-badge-off {
+            background-color: #9e9e9e;
+            color: white;
+            padding: 4px 14px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+        .chart-card {
+            border: none;
+            border-radius: 16px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+        }
+        .control-card {
+            border: none;
+            border-radius: 16px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+        }
+        .btn-pump-on {
+            background: linear-gradient(135deg, #4caf50, #66bb6a);
+            border: none;
+            border-radius: 12px;
+            padding: 14px;
+            font-size: 1rem;
+            font-weight: 600;
+            color: white;
+            width: 100%;
+            transition: all 0.2s;
+        }
+        .btn-pump-on:hover {
+            background: linear-gradient(135deg, #388e3c, #4caf50);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(76,175,80,0.4);
+            color: white;
+        }
+        .btn-pump-off {
+            background: linear-gradient(135deg, #f44336, #ef5350);
+            border: none;
+            border-radius: 12px;
+            padding: 14px;
+            font-size: 1rem;
+            font-weight: 600;
+            color: white;
+            width: 100%;
+            transition: all 0.2s;
+        }
+        .btn-pump-off:hover {
+            background: linear-gradient(135deg, #c62828, #f44336);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(244,67,54,0.4);
+            color: white;
+        }
+        .moisture-bar-container {
+            background: #e0e0e0;
+            border-radius: 10px;
+            height: 10px;
+            overflow: hidden;
+        }
+        .moisture-bar {
+            height: 100%;
+            border-radius: 10px;
+            transition: width 0.5s ease;
+        }
+        #toast-container {
+            position: fixed;
+            bottom: 1.5rem;
+            right: 1.5rem;
+            z-index: 9999;
+        }
+    </style>
+</head>
+<body>
+
+<!-- ── 네비게이션 바 ─────────────────────────────────────────────────── -->
+<nav class="navbar navbar-dark" style="background: linear-gradient(135deg, #1b5e20, #2e7d32);">
+    <div class="container-fluid px-4">
+        <span class="navbar-brand">
+            <i class="bi bi-moisture me-2"></i>🌿 SmartFarm Dashboard
+        </span>
+        <div class="d-flex align-items-center gap-3">
+            <!-- SSE 연결 상태 표시 -->
+            <span class="badge bg-success" id="connection-badge">
+                <i class="bi bi-circle-fill me-1" style="font-size:0.5rem;"></i>실시간 연결 중
+            </span>
+            <!-- 로그인한 관리자명 -->
+            <span class="text-white-50 small">
+                <i class="bi bi-person-circle me-1"></i>
+                <span th:text="${username}">admin</span>
+            </span>
+            <!-- 로그아웃 버튼 -->
+            <form th:action="@{/logout}" method="post" class="m-0">
+                <button type="submit" class="btn btn-outline-light btn-sm">
+                    <i class="bi bi-box-arrow-right me-1"></i>로그아웃
+                </button>
+            </form>
+        </div>
+    </div>
+</nav>
+
+<!-- ── 메인 콘텐츠 ─────────────────────────────────────────────────────── -->
+<div class="container-fluid px-4 py-4">
+
+    <!-- ── 상태 카드 4개 ─────────────────────────────────────────────── -->
+    <div class="row g-3 mb-4">
+
+        <!-- 카드 1: 토양 수분 % -->
+        <div class="col-sm-6 col-xl-3">
+            <div class="card stat-card card-moisture p-3 h-100">
+                <div class="stat-label mb-2"><i class="bi bi-droplet-fill me-1 text-success"></i>토양 수분</div>
+                <div class="stat-value text-success" id="soil-percent"
+                     th:text="${latest.soilPercent} + '%'">--%</div>
+                <!-- 수분 게이지 바 -->
+                <div class="moisture-bar-container mt-2">
+                    <div class="moisture-bar bg-success" id="moisture-bar"
+                         th:style="'width:' + ${latest.soilPercent} + '%'"></div>
+                </div>
+                <div class="small text-muted mt-1" id="soil-status">
+                    <!-- 수분 상태 텍스트 (JavaScript로 업데이트) -->
+                </div>
+            </div>
+        </div>
+
+        <!-- 카드 2: ADC 원시값 -->
+        <div class="col-sm-6 col-xl-3">
+            <div class="card stat-card card-raw p-3 h-100">
+                <div class="stat-label mb-2"><i class="bi bi-cpu me-1 text-primary"></i>ADC 원시값</div>
+                <div class="stat-value text-primary" id="soil-raw"
+                     th:text="${latest.soilRaw}">---</div>
+                <div class="small text-muted mt-2">Arduino A0 핀 (0 ~ 1023)</div>
+            </div>
+        </div>
+
+        <!-- 카드 3: 펌프 상태 -->
+        <div class="col-sm-6 col-xl-3">
+            <div class="card stat-card card-pump p-3 h-100">
+                <div class="stat-label mb-2"><i class="bi bi-water me-1 text-warning"></i>펌프 상태</div>
+                <div class="mt-1">
+                    <span th:if="${latest.pumpOn}" class="pump-badge-on" id="pump-badge">
+                        <i class="bi bi-play-fill me-1"></i>ON
+                    </span>
+                    <span th:unless="${latest.pumpOn}" class="pump-badge-off" id="pump-badge">
+                        <i class="bi bi-stop-fill me-1"></i>OFF
+                    </span>
+                </div>
+                <div class="small text-muted mt-2">워터 펌프 동작 여부</div>
+            </div>
+        </div>
+
+        <!-- 카드 4: 마지막 업데이트 -->
+        <div class="col-sm-6 col-xl-3">
+            <div class="card stat-card card-time p-3 h-100">
+                <div class="stat-label mb-2"><i class="bi bi-clock-fill me-1 text-purple"></i>마지막 업데이트</div>
+                <div class="stat-value" style="font-size:1.8rem; color:#7b1fa2;" id="last-updated"
+                     th:text="${latest.measuredAtFormatted}">--:--:--</div>
+                <div class="small text-muted mt-2">3초마다 자동 갱신</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── 차트 + 펌프 제어 ───────────────────────────────────────────── -->
+    <div class="row g-3">
+
+        <!-- 수분 추이 차트 -->
+        <div class="col-lg-8">
+            <div class="card chart-card p-4">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h6 class="mb-0 fw-bold">
+                        <i class="bi bi-graph-up-arrow me-2 text-success"></i>토양 수분 추이 (최근 20회)
+                    </h6>
+                    <span class="badge bg-light text-muted small">3초마다 업데이트</span>
+                </div>
+                <canvas id="moistureChart" height="100"></canvas>
+            </div>
+        </div>
+
+        <!-- 펌프 제어 패널 -->
+        <div class="col-lg-4">
+            <div class="card control-card p-4 h-100">
+                <h6 class="fw-bold mb-3">
+                    <i class="bi bi-toggles me-2 text-warning"></i>펌프 수동 제어
+                </h6>
+                <p class="text-muted small mb-4">
+                    버튼을 클릭하면 Arduino로 명령을 전송합니다.<br>
+                    시뮬레이션 모드에서는 명령 전송 없이 로그만 기록됩니다.
+                </p>
+
+                <div class="d-grid gap-3">
+                    <!-- 펌프 ON 버튼 -->
+                    <button class="btn-pump-on" onclick="controlPump('on')">
+                        <i class="bi bi-play-circle-fill me-2"></i>펌프 켜기 (ON)
+                    </button>
+
+                    <!-- 펌프 OFF 버튼 -->
+                    <button class="btn-pump-off" onclick="controlPump('off')">
+                        <i class="bi bi-stop-circle-fill me-2"></i>펌프 끄기 (OFF)
+                    </button>
+                </div>
+
+                <hr class="my-3">
+                <div class="small text-muted">
+                    <div class="mb-1"><i class="bi bi-info-circle me-1"></i>수분 기준</div>
+                    <div class="d-flex justify-content-between">
+                        <span>🔴 건조 (0~30%)</span>
+                        <span>→ 펌프 ON 권장</span>
+                    </div>
+                    <div class="d-flex justify-content-between">
+                        <span>🟡 보통 (31~60%)</span>
+                        <span>→ 모니터링</span>
+                    </div>
+                    <div class="d-flex justify-content-between">
+                        <span>🟢 충분 (61~100%)</span>
+                        <span>→ 펌프 OFF 권장</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ── 토스트 알림 (펌프 제어 결과) ────────────────────────────────────── -->
+<div id="toast-container"></div>
+
+<!-- Chart.js 4.x CDN -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<!-- Bootstrap 5 JS -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+
+<script th:inline="javascript">
+    /*
+     * Thymeleaf에서 서버 데이터를 JavaScript 변수로 전달.
+     * th:inline="javascript"를 사용하면 Thymeleaf가 자동으로 JS에 맞는 타입으로 변환합니다.
+     *
+     * history: 최근 20건 데이터 (최신 순) → 차트에서는 .reverse()로 시간 순 표시
+     */
+    const historyData = /*[[${history}]]*/ [];
+
+    // CSRF 토큰: Spring Security가 POST 요청 시 검증하는 토큰
+    const csrfToken = document.querySelector('meta[name="_csrf"]').content;
+    const csrfHeader = document.querySelector('meta[name="_csrf_header"]').content;
+
+    // ── Chart.js 초기화 ────────────────────────────────────────────────
+    const ctx = document.getElementById('moistureChart').getContext('2d');
+
+    // 히스토리 데이터를 시간 순(오래된 것 먼저)으로 정렬
+    const sortedHistory = [...historyData].reverse();
+
+    const chart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: sortedHistory.map(d => d.measuredAtFormatted),
+            datasets: [{
+                label: '토양 수분 (%)',
+                data: sortedHistory.map(d => d.soilPercent),
+                borderColor: '#4caf50',
+                backgroundColor: 'rgba(76,175,80,0.1)',
+                borderWidth: 2.5,
+                pointBackgroundColor: '#4caf50',
+                pointRadius: 4,
+                pointHoverRadius: 6,
+                tension: 0.3,  // 곡선 부드럽게
+                fill: true
+            }]
+        },
+        options: {
+            responsive: true,
+            animation: { duration: 300 },
+            scales: {
+                y: {
+                    min: 0,
+                    max: 100,
+                    ticks: { callback: v => v + '%' },
+                    grid: { color: 'rgba(0,0,0,0.05)' }
+                },
+                x: {
+                    grid: { display: false }
+                }
+            },
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        label: ctx => `수분: ${ctx.parsed.y}%`
+                    }
+                }
+            }
+        }
+    });
+
+    // ── 대시보드 카드 업데이트 함수 ────────────────────────────────────
+    /**
+     * 새 센서 데이터로 대시보드 UI를 갱신합니다.
+     * SSE 이벤트 수신 시 자동으로 호출됩니다.
+     *
+     * @param {Object} data - 서버에서 수신한 SensorDataDto JSON
+     */
+    function updateDashboard(data) {
+        // 수분 퍼센트 카드
+        document.getElementById('soil-percent').textContent = data.soilPercent + '%';
+        // 수분 게이지 바
+        document.getElementById('moisture-bar').style.width = data.soilPercent + '%';
+        // 수분 상태 텍스트
+        const soilStatus = document.getElementById('soil-status');
+        if (data.soilPercent <= 30) {
+            soilStatus.innerHTML = '🔴 건조 - 물 공급이 필요합니다';
+            soilStatus.style.color = '#f44336';
+        } else if (data.soilPercent <= 60) {
+            soilStatus.innerHTML = '🟡 보통 - 모니터링 중';
+            soilStatus.style.color = '#ff9800';
+        } else {
+            soilStatus.innerHTML = '🟢 충분 - 양호한 상태';
+            soilStatus.style.color = '#4caf50';
+        }
+        // ADC 원시값 카드
+        document.getElementById('soil-raw').textContent = data.soilRaw;
+        // 펌프 상태 배지
+        const pumpBadge = document.getElementById('pump-badge');
+        if (data.pumpOn) {
+            pumpBadge.className = 'pump-badge-on';
+            pumpBadge.innerHTML = '<i class="bi bi-play-fill me-1"></i>ON';
+        } else {
+            pumpBadge.className = 'pump-badge-off';
+            pumpBadge.innerHTML = '<i class="bi bi-stop-fill me-1"></i>OFF';
+        }
+        // 마지막 업데이트 시각
+        document.getElementById('last-updated').textContent = data.measuredAtFormatted;
+
+        // ── 차트 업데이트 ─────────────────────────────────────────────
+        // 20건 초과 시 가장 오래된 데이터 제거
+        if (chart.data.labels.length >= 20) {
+            chart.data.labels.shift();
+            chart.data.datasets[0].data.shift();
+        }
+        chart.data.labels.push(data.measuredAtFormatted);
+        chart.data.datasets[0].data.push(data.soilPercent);
+        chart.update('none'); // 애니메이션 없이 즉시 업데이트
+    }
+
+    // ── SSE 연결 및 자동 재연결 ───────────────────────────────────────
+    /**
+     * SSE 연결을 수립합니다.
+     * 연결 끊김 시 3초 후 자동으로 재연결을 시도합니다.
+     */
+    function connectSSE() {
+        const badge = document.getElementById('connection-badge');
+        const evtSource = new EventSource('/api/sse');
+
+        // 'sensor' 이벤트 수신 시 대시보드 업데이트
+        evtSource.addEventListener('sensor', (e) => {
+            const data = JSON.parse(e.data);
+            updateDashboard(data);
+        });
+
+        evtSource.onopen = () => {
+            badge.className = 'badge bg-success';
+            badge.innerHTML = '<i class="bi bi-circle-fill me-1" style="font-size:0.5rem;"></i>실시간 연결 중';
+        };
+
+        evtSource.onerror = () => {
+            // 연결 끊김 → 상태 표시 변경 후 3초 뒤 재연결
+            badge.className = 'badge bg-warning text-dark';
+            badge.innerHTML = '<i class="bi bi-circle-fill me-1" style="font-size:0.5rem;"></i>재연결 중...';
+            evtSource.close();
+            setTimeout(connectSSE, 3000);
+        };
+    }
+
+    // 페이지 로딩 완료 후 SSE 연결 시작
+    connectSSE();
+
+    // 초기 수분 상태 텍스트 설정
+    const initPercent = parseInt(document.getElementById('soil-percent').textContent);
+    if (!isNaN(initPercent)) {
+        updateDashboard({ soilPercent: initPercent, soilRaw: 0, pumpOn: false, measuredAtFormatted: '' });
+    }
+
+    // ── 펌프 제어 ─────────────────────────────────────────────────────
+    /**
+     * 펌프 ON/OFF 버튼 클릭 시 REST API를 호출합니다.
+     * Spring Security CSRF 토큰을 헤더에 포함합니다.
+     *
+     * @param {'on'|'off'} action - 'on' 또는 'off'
+     */
+    async function controlPump(action) {
+        try {
+            const response = await fetch(`/api/pump/${action}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    // Spring Security CSRF 토큰 (없으면 403 Forbidden 발생)
+                    [csrfHeader]: csrfToken
+                }
+            });
+            const result = await response.json();
+            showToast(result.message, response.ok ? 'success' : 'danger');
+        } catch (e) {
+            showToast('펌프 제어 중 오류가 발생했습니다.', 'danger');
+        }
+    }
+
+    /**
+     * 화면 우하단에 토스트 알림을 표시합니다.
+     *
+     * @param {string} message - 표시할 메시지
+     * @param {'success'|'danger'|'warning'} type - Bootstrap 색상 테마
+     */
+    function showToast(message, type) {
+        const toastEl = document.createElement('div');
+        toastEl.className = `alert alert-${type} alert-dismissible shadow-sm mb-2`;
+        toastEl.style.cssText = 'min-width:250px; border-radius:12px; animation: fadeIn 0.3s;';
+        toastEl.innerHTML = `
+            ${message}
+            <button type="button" class="btn-close" onclick="this.parentElement.remove()"></button>
+        `;
+        document.getElementById('toast-container').prepend(toastEl);
+        // 3초 후 자동 제거
+        setTimeout(() => toastEl.remove(), 3000);
+    }
+</script>
+</body>
+</html>

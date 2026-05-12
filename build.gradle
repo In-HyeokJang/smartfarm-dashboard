@@ -1,0 +1,75 @@
+plugins {
+    id 'java'
+    // Spring Boot 4.0.6 유지 - 사용자가 설정한 버전
+    id 'org.springframework.boot' version '4.0.6'
+    id 'io.spring.dependency-management' version '1.1.7'
+}
+
+group = 'com.samintech'
+version = '0.0.1-SNAPSHOT'
+description = 'smartfarm-dashboard'
+
+java {
+    toolchain {
+        // Spring Boot 4.0은 Java 21 이상을 필수로 요구
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    // ── 핵심 웹 스타터 ──────────────────────────────────────────────────────────
+    // Spring Boot 4.0에서의 Spring MVC 스타터 이름: spring-boot-starter-webmvc
+    // Jackson(JSON 변환), Tomcat(내장 서버), Spring MVC가 모두 포함됨
+    implementation 'org.springframework.boot:spring-boot-starter-webmvc'
+
+    // ── 데이터베이스 ─────────────────────────────────────────────────────────────
+    // JPA/Hibernate ORM: @Entity, @Repository, JPQL 쿼리 등
+    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+
+    // PostgreSQL JDBC 드라이버: Supabase는 PostgreSQL 기반이므로 이 드라이버 사용
+    // 기존 H2(인메모리 DB) → Supabase(PostgreSQL) 로 교체
+    runtimeOnly 'org.postgresql:postgresql'
+
+    // ── 뷰 템플릿 ────────────────────────────────────────────────────────────────
+    // Thymeleaf: 서버사이드 HTML 렌더링 엔진 (dashboard.html, login.html)
+    implementation 'org.springframework.boot:spring-boot-starter-thymeleaf'
+
+    // ── 보안 ─────────────────────────────────────────────────────────────────────
+    // Spring Security 7 (Spring Boot 4.0에 내장): 로그인/로그아웃, 접근 제어
+    // 설치하면 자동으로 모든 URL이 인증 필요 상태가 됨
+    implementation 'org.springframework.boot:spring-boot-starter-security'
+
+    // ── 하드웨어 통신 ─────────────────────────────────────────────────────────────
+    // jSerialComm: Arduino가 USB로 전송하는 시리얼 데이터를 Java에서 읽기 위한 라이브러리
+    // Arduino IDE Serial Monitor에서 보이는 텍스트를 Java가 COM 포트에서 직접 읽음
+    implementation 'com.fazecast:jSerialComm:2.10.4'
+
+    // ── 환경변수(.env 파일) ────────────────────────────────────────────────────────
+    // dotenv-java: 프로젝트 루트의 .env 파일을 읽어 Spring 환경변수로 주입
+    // 민감한 정보(DB 비밀번호, 관리자 계정 등)를 코드와 분리하여 관리
+    // .env 파일은 .gitignore에 등록하여 GitHub에 절대 올라가지 않음
+    implementation 'io.github.cdimascio:dotenv-java:3.0.0'
+
+    // ── 개발 편의 ─────────────────────────────────────────────────────────────────
+    // Lombok: @Getter, @Setter, @Slf4j 등 보일러플레이트 코드 자동 생성
+    compileOnly 'org.projectlombok:lombok'
+    annotationProcessor 'org.projectlombok:lombok'
+
+    // DevTools: 코드 변경 시 자동 재시작 (개발 환경 전용)
+    developmentOnly 'org.springframework.boot:spring-boot-devtools'
+
+    // ── 테스트 ────────────────────────────────────────────────────────────────────
+    // Spring Boot 표준 테스트 스타터 (JUnit 5, Mockito, AssertJ 포함)
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testCompileOnly 'org.projectlombok:lombok'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    testAnnotationProcessor 'org.projectlombok:lombok'
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+}

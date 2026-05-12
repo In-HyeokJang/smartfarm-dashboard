@@ -1,0 +1,21 @@
+spring:
+  application:
+    name: smartfarm-dashboard
+  config:
+    # [.properties] 힌트: Spring에게 .env 파일을 properties 형식으로 읽으라고 알려줌
+    import: optional:file:.env[.properties]
+# ── 관리자 계정 설정 ──────────────────────────────────────────────────────────────
+# .env 파일의 ADMIN_USERNAME, ADMIN_PASSWORD 를 읽습니다
+admin:
+  username: ${ADMIN_USERNAME}
+  password: ${ADMIN_PASSWORD}
+
+# ── Arduino 시리얼 통신 설정 ──────────────────────────────────────────────────────
+serial:
+  port: ${SERIAL_PORT:COM3}
+  baud-rate: 9600
+  enabled: ${SERIAL_ENABLED:false}
+
+# ── 서버 설정 ─────────────────────────────────────────────────────────────────────
+server:
+  port: 7070
