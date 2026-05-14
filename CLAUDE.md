@@ -111,6 +111,27 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
  */
 ```
 
+## 7. 세션 로그 규칙
+
+**매 세션 시작 시 반드시 아래 순서로 실행:**
+1. `docs/sessions/` 폴더의 파일 목록 확인
+2. 가장 최근 날짜의 로그 파일 읽기 → 이전 작업 내용 파악 후 이어서 진행
+3. 오늘 날짜 기준 3일 이상 지난 로그 파일은 삭제
+
+**매 세션 작업 후:**
+- `docs/sessions/YYYY-MM-DD.md` 형식으로 오늘 작업 내용 기록 (파일이 있으면 업데이트, 없으면 생성)
+
+**로그 파일 형식:**
+```markdown
+# Session: YYYY-MM-DD
+
+## 작업 내용
+- 항목별 완료된 작업
+
+## 다음 세션 참고사항
+- 이어서 해야 할 것들 / 현재 미완료 사항 / 주의할 점
+```
+
 ---
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
